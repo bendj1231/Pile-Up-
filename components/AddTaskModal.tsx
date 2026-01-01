@@ -24,6 +24,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
   // Subtasks State
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [newSubtaskCategory, setNewSubtaskCategory] = useState<TaskCategory>(TaskCategory.LEARNING);
 
   // Reset or load state when modal opens
   useEffect(() => {
@@ -38,6 +39,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
             setGoalId(taskToEdit.linkedGoalId || '');
             setSubtasks(taskToEdit.subtasks || []);
             setIsBacklog(taskToEdit.isBacklog || false);
+            setNewSubtaskCategory(taskToEdit.category); // Default subtask category to parent
         } else {
             // Creating new task
             setTitle('');
@@ -45,6 +47,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
             setTags('');
             setDuration(30);
             setCategory(TaskCategory.LEARNING);
+            setNewSubtaskCategory(TaskCategory.LEARNING);
             // Default to the current project context if available
             setGoalId(initialGoalId || '');
             setSubtasks([]);
@@ -61,7 +64,8 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
         setSubtasks([...subtasks, {
             id: Date.now().toString() + Math.random(),
             title: newSubtaskTitle,
-            isCompleted: false
+            isCompleted: false,
+            category: newSubtaskCategory // Assign selected category
         }]);
         setNewSubtaskTitle('');
     }
@@ -82,7 +86,8 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
           finalSubtasks.push({
             id: Date.now().toString() + Math.random(),
             title: newSubtaskTitle.trim(),
-            isCompleted: false
+            isCompleted: false,
+            category: newSubtaskCategory
           });
       }
 
@@ -109,11 +114,24 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
         setDescription(suggestions.description);
         setTags(suggestions.tags.join(', '));
         setCategory(suggestions.category);
+        setNewSubtaskCategory(suggestions.category); // Sync subtask default
     } catch (e) {
         console.error(e);
     } finally {
         setIsSuggesting(false);
     }
+  };
+
+  // Helper for chip styling
+  const getCategoryStyles = (cat: TaskCategory, isSelected: boolean) => {
+      if (!isSelected) return 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700';
+      
+      switch (cat) {
+          case TaskCategory.RESEARCH: return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700/50';
+          case TaskCategory.CREATION: return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/50';
+          case TaskCategory.LEARNING: return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700/50';
+          default: return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600';
+      }
   };
 
   return (
@@ -166,35 +184,58 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
             </div>
 
             {/* Subtasks Section */}
-            <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Session Objectives / Subtasks</label>
-                <div className="flex gap-2 mb-2">
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-700/50">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Session Objectives / Subtasks</label>
+                
+                {/* Category Selector Chips */}
+                <div className="flex flex-wrap gap-2 mb-3">
+                    {Object.values(TaskCategory).map(cat => (
+                        <button
+                            key={cat}
+                            type="button"
+                            onClick={() => setNewSubtaskCategory(cat)}
+                            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border transition-all transform hover:scale-105 ${getCategoryStyles(cat, newSubtaskCategory === cat)}`}
+                        >
+                            {cat}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="flex gap-2 mb-3">
                     <input
                         type="text"
                         value={newSubtaskTitle}
                         onChange={(e) => setNewSubtaskTitle(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSubtask())}
-                        placeholder="Add specific objective..."
-                        className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-300 text-sm focus:outline-none"
+                        placeholder="Add task"
+                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-700 dark:text-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                     />
                     <button 
                         type="button" 
                         onClick={handleAddSubtask}
-                        className="bg-indigo-600/10 text-indigo-600 dark:text-indigo-400 px-3 py-2 rounded-lg font-bold text-lg hover:bg-indigo-600/20"
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white w-10 rounded-lg font-bold text-lg transition-colors flex items-center justify-center"
                     >
                         +
                     </button>
                 </div>
-                <ul className="space-y-1 max-h-32 overflow-y-auto">
+
+                <ul className="space-y-2 max-h-32 overflow-y-auto pr-1">
                     {subtasks.map(sub => (
-                        <li key={sub.id} className="flex items-center justify-between text-sm bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded border border-slate-100 dark:border-slate-700">
-                            <span className="text-slate-700 dark:text-slate-300 truncate">{sub.title}</span>
-                            <button type="button" onClick={() => handleRemoveSubtask(sub.id)} className="text-slate-400 hover:text-red-500">
+                        <li key={sub.id} className="flex items-center justify-between text-sm bg-white dark:bg-slate-800 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+                            <div className="flex items-center gap-2 overflow-hidden">
+                                <div className={`w-2 h-2 rounded-full shrink-0 ${
+                                    sub.category === TaskCategory.RESEARCH ? 'bg-blue-500' :
+                                    sub.category === TaskCategory.CREATION ? 'bg-red-500' :
+                                    sub.category === TaskCategory.LEARNING ? 'bg-emerald-500' : 'bg-slate-400'
+                                }`}></div>
+                                <span className="text-slate-700 dark:text-slate-300 truncate">{sub.title}</span>
+                            </div>
+                            <button type="button" onClick={() => handleRemoveSubtask(sub.id)} className="text-slate-400 hover:text-red-500 ml-2">
                                 &times;
                             </button>
                         </li>
                     ))}
-                    {subtasks.length === 0 && <p className="text-xs text-slate-400 italic">No subtasks defined.</p>}
+                    {subtasks.length === 0 && <p className="text-xs text-slate-400 italic text-center py-2">No tasks added yet.</p>}
                 </ul>
             </div>
 
@@ -210,7 +251,7 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
                     />
                 </div>
                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Category</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Main Category</label>
                     <select
                         value={category}
                         onChange={(e) => setCategory(e.target.value as TaskCategory)}
