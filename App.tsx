@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import TimerModal from './components/TimerModal';
 import GoalCard from './components/GoalCard';
 import AnalysisPanel from './components/AnalysisPanel';
 import ProgressChart from './components/ProgressChart';
-import CategoryDistributionChart from './components/CategoryDistributionChart';
 import Sidebar from './components/Sidebar';
 import PaperView from './components/PaperView';
 import AddTaskModal from './components/AddTaskModal';
 import CreateProjectModal from './components/CreateProjectModal';
-import { Task, Goal, GoalType, TaskStatus, TaskCategory, Subtask } from './types';
+import TimesheetView from './components/TimesheetView';
+import { Task, Goal, GoalType, TaskStatus, TaskCategory, Subtask, TimeOfDay } from './types';
 
 // Initial Mock Data
 const INITIAL_GOALS: Goal[] = [
@@ -19,7 +19,9 @@ const INITIAL_GOALS: Goal[] = [
     deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     targetHours: 40,
     loggedHours: 12,
-    description: 'Internship requirements and learning'
+    description: 'Internship requirements and learning',
+    dailyTarget: 1.5,
+    preferredTime: TimeOfDay.MORNING
   },
   {
     id: '2',
@@ -28,7 +30,9 @@ const INITIAL_GOALS: Goal[] = [
     deadline: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
     targetHours: 100,
     loggedHours: 45,
-    description: 'Pilot training program'
+    description: 'Pilot training program',
+    dailyTarget: 2,
+    preferredTime: TimeOfDay.EVENING
   }
 ];
 
@@ -125,7 +129,7 @@ const App: React.FC = () => {
       return saved ? JSON.parse(saved) : INITIAL_GOALS;
   });
   
-  const [currentView, setCurrentView] = useState('all'); // 'all', 'dashboard', or goalId
+  const [currentView, setCurrentView] = useState('all'); // 'all', 'dashboard', 'timesheet' or goalId
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   
   // Theme State
@@ -141,6 +145,12 @@ const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  // Scroll State for Notch Effect
+  const [scrollTop, setScrollTop] = useState(0);
+
+  // File Input Ref for Import
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Loading Simulation
   useEffect(() => {
@@ -169,6 +179,11 @@ const App: React.FC = () => {
     }
   }, [isDarkMode]);
 
+  // Reset scroll when changing views
+  useEffect(() => {
+      setScrollTop(0);
+  }, [currentView, appState]);
+
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   // Handlers
@@ -176,7 +191,7 @@ const App: React.FC = () => {
       setCurrentView(view);
       // If entering a specific project from selection, go to detail view (no sidebar)
       // If entering dashboard, go to app view (with sidebar)
-      if (view === 'dashboard' || view === 'all') {
+      if (view === 'dashboard' || view === 'all' || view === 'timesheet') {
           setAppState('app');
       } else {
           setAppState('project-detail');
@@ -257,7 +272,9 @@ const App: React.FC = () => {
         deadline: projectData.deadline,
         targetHours: projectData.targetHours,
         loggedHours: 0,
-        description: projectData.description
+        description: projectData.description,
+        dailyTarget: projectData.dailyTarget,
+        preferredTime: projectData.preferredTime,
     };
     setGoals(prev => [...prev, newGoal]);
 
@@ -322,7 +339,133 @@ const App: React.FC = () => {
   };
 
   const handleDeleteTask = (id: string) => {
-    setTasks(tasks.filter(t => t.id !== id));
+    setTasks(prev => prev.filter(t => t.id !== id));
+  };
+
+  // --- IMPORT / EXPORT LOGIC ---
+  
+  const handleExportProjectJSON = (goalId: string) => {
+    const goal = goals.find(g => g.id === goalId);
+    if (!goal) return;
+
+    const projectTasks = tasks.filter(t => t.linkedGoalId === goalId);
+    const exportData = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        goal: goal,
+        tasks: projectTasks
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    // Sanitize title for filename
+    const filename = goal.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    link.download = `timeout_project_${filename}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportProjectCSV = (goalId: string) => {
+    const goal = goals.find(g => g.id === goalId);
+    if (!goal) return;
+
+    const projectTasks = tasks.filter(t => t.linkedGoalId === goalId);
+    
+    // CSV Header
+    const headers = ['Date', 'Task Title', 'Category', 'Duration (min)', 'Status', 'Notes'];
+    
+    // CSV Rows
+    const rows = projectTasks.map(t => {
+        const date = new Date(t.createdAt).toLocaleDateString();
+        // Escape quotes in strings
+        const title = `"${t.title.replace(/"/g, '""')}"`; 
+        const notes = t.description ? `"${t.description.replace(/"/g, '""')}"` : '""';
+        return [
+            date,
+            title,
+            t.category,
+            t.actualDurationMinutes || 0,
+            t.status,
+            notes
+        ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const filename = goal.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    link.download = `timesheet_${filename}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportClick = () => {
+    if (fileInputRef.current) {
+        fileInputRef.current.click();
+    }
+  };
+
+  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        try {
+            const data = JSON.parse(event.target?.result as string);
+            
+            // Basic validation
+            if (!data.goal || !data.tasks || !Array.isArray(data.tasks)) {
+                alert("Invalid Time Out project file.");
+                return;
+            }
+
+            const importedGoal: Goal = data.goal;
+            const importedTasks: Task[] = data.tasks;
+
+            // Update Goals: Remove existing with same ID, append new
+            setGoals(prev => {
+                const filtered = prev.filter(g => g.id !== importedGoal.id);
+                return [...filtered, importedGoal];
+            });
+
+            // Update Tasks: Remove existing linked to this goal, append new
+            setTasks(prev => {
+                const existingTaskIds = importedTasks.map(t => t.id);
+                // Remove tasks that might collide or are part of the old version of this goal
+                const filtered = prev.filter(t => 
+                    t.linkedGoalId !== importedGoal.id && !existingTaskIds.includes(t.id)
+                );
+                return [...filtered, ...importedTasks];
+            });
+
+            alert(`Project "${importedGoal.title}" imported successfully.`);
+            
+            // Navigate to imported project
+            if (appState === 'project-detail') {
+                 // Refresh view if we are already in detail view but loaded different data
+                 // setCurrentView(importedGoal.id); (already likely set, but ensures update)
+            } else {
+                 setCurrentView(importedGoal.id);
+                 setAppState('project-detail');
+            }
+
+        } catch (error) {
+            console.error("Import error", error);
+            alert("Failed to parse project file.");
+        }
+        // Reset input
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
   };
 
   // Calculate pending tasks with progress (Buildup)
@@ -339,7 +482,7 @@ const App: React.FC = () => {
                     className="relative w-48 h-48 md:w-64 md:h-64 object-contain animate-bounce-slow drop-shadow-2xl" 
                 />
             </div>
-            <h1 className="mt-8 text-3xl font-bold text-slate-800 dark:text-white tracking-tight animate-fade-in">Pile Up</h1>
+            <h1 className="mt-8 text-3xl font-bold text-slate-800 dark:text-white tracking-tight animate-fade-in">Time Out</h1>
             <div className="mt-4 flex items-center gap-2">
                 <span className="text-slate-400 font-medium tracking-widest text-xs uppercase">Loading</span>
                 <div className="flex gap-1">
@@ -351,7 +494,7 @@ const App: React.FC = () => {
         </div>
     );
   }
-
+  
   if (appState === 'landing') {
       return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 animate-fade-in transition-colors duration-500">
@@ -360,17 +503,17 @@ const App: React.FC = () => {
             <div className="flex flex-col items-center justify-center mb-10 text-center animate-fade-in-down">
                 <img 
                     src="https://lh3.googleusercontent.com/d/1bHJPW95-8OOP_AFWVJboqNIFFCvru2e2" 
-                    alt="Pile Up Logo" 
+                    alt="Time Out Logo" 
                     className="w-40 h-40 object-contain mb-6 drop-shadow-2xl" 
                 />
-                <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-1 tracking-tight">Pile Up</h1>
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-1 tracking-tight">Time Out</h1>
                 <p className="text-slate-500 dark:text-slate-400 text-xs font-medium uppercase tracking-widest max-w-md">
                     Your co-pilot in tracking your progress within projects & objectives
                 </p>
             </div>
 
             {/* Options Container */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-3xl">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-6xl px-4">
                 
                 {/* Option 1: Enter Platform */}
                 <div className="flex flex-col group w-full animate-fade-in-up [animation-delay:100ms] cursor-pointer" onClick={() => handleEnterApp('dashboard')}>
@@ -423,6 +566,32 @@ const App: React.FC = () => {
                         </p>
                     </div>
                 </div>
+
+                {/* Option 3: Timesheet Management */}
+                <div className="flex flex-col group w-full animate-fade-in-up [animation-delay:300ms] cursor-pointer" onClick={() => handleEnterApp('timesheet')}>
+                    <div 
+                        className="relative h-[480px] w-full overflow-hidden rounded-[2.5rem] shadow-xl group-hover:shadow-2xl group-hover:shadow-blue-500/20 transition-all duration-500 ease-out transform group-hover:-translate-y-2"
+                    >
+                        <img 
+                            src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80&w=800" 
+                            alt="Timesheet" 
+                            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+                        />
+                        {/* Gradient Overlay: Fades to black at bottom */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity duration-300" />
+
+                        {/* Title inside card */}
+                        <div className="absolute bottom-0 left-0 p-8 w-full text-left">
+                            <h3 className="text-2xl font-bold text-white mb-1 tracking-tight group-hover:text-blue-200 transition-colors">Timesheet Management</h3>
+                        </div>
+                    </div>
+                     {/* Description - Reveals on Hover */}
+                    <div className="h-10 mt-4 px-2">
+                        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium text-center leading-relaxed opacity-0 group-hover:opacity-100 transition-all duration-500 transform translate-y-2 group-hover:translate-y-0">
+                            Import data, analyze efficiency, and generate PDF reports.
+                        </p>
+                    </div>
+                </div>
             </div>
 
              {/* Create Project Modal (Accessible from landing page too) */}
@@ -434,8 +603,6 @@ const App: React.FC = () => {
         </div>
       );
   }
-
-  // ... (Rest of component renders same as before, no changes needed below until CreateProjectModal usage)
   
   if (appState === 'project-selection') {
       return (
@@ -545,64 +712,125 @@ const App: React.FC = () => {
     const bgImage = currentGoal ? getProjectImage(currentGoal.id, currentGoal.title) : '';
     // Filter tasks for this project only
     const projectTasks = tasks.filter(t => t.linkedGoalId === currentView);
+    
+    // Scroll Threshold for Notch Transformation - IMMEDIATE ( > 10px )
+    const isNotchMode = scrollTop > 10;
 
     return (
-        <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col animate-fade-in transition-colors duration-200">
-             {/* Enhanced Header with Blur Background */}
-             <div className="relative bg-slate-900 h-64 w-full flex-shrink-0 overflow-hidden">
-                {/* Background Image with Blur */}
-                {bgImage && (
-                    <div className="absolute inset-0 z-0">
-                         <img 
-                            src={bgImage} 
-                            alt="Background" 
-                            className="w-full h-full object-cover opacity-60 blur-md scale-105"
-                         />
-                         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/60 to-transparent"></div>
-                    </div>
-                )}
-                
+        <div className="h-screen bg-slate-50 dark:bg-slate-950 flex flex-col animate-fade-in transition-colors duration-200 overflow-hidden relative">
+             
+             {/* Hidden File Input for Import */}
+             <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept=".json"
+                onChange={handleFileImport}
+             />
+
+             {/* Transforming Header (Fixed) */}
+             <div 
+                className={`fixed z-50 transition-all duration-700 cubic-bezier(0.34, 1.56, 0.64, 1) overflow-hidden shadow-xl
+                    ${isNotchMode 
+                        ? 'top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-lg h-16 rounded-full bg-slate-900/60 backdrop-blur-xl border border-white/10' 
+                        : 'top-0 left-0 w-full h-80 rounded-b-[3rem] bg-slate-900 border-b-0 border-transparent'
+                    }
+                `}
+             >
+                 {/* Background Image - Only visible in Hero Mode */}
+                <div className={`absolute inset-0 transition-opacity duration-500 ${isNotchMode ? 'opacity-0' : 'opacity-100'}`}>
+                    {bgImage && (
+                        <>
+                            <img 
+                                src={bgImage} 
+                                alt="Background" 
+                                className="w-full h-full object-cover opacity-60 blur-md scale-105"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/60 to-transparent"></div>
+                        </>
+                    )}
+                </div>
+
                 {/* Header Content */}
-                <header className="relative z-10 px-8 h-20 flex items-center justify-between">
-                     <div className="flex items-center gap-4">
+                <div className={`relative z-10 w-full h-full flex flex-col transition-all duration-500 ${isNotchMode ? 'px-4 justify-center' : 'px-8 py-8 justify-between'}`}>
+                    
+                    {/* Top Row: Navigation Buttons */}
+                    <div className={`flex items-center justify-between w-full transition-all duration-500 ${isNotchMode ? 'absolute inset-0 px-4' : ''}`}>
+                         {/* Back Button */}
                          <button 
                             onClick={() => setAppState('project-selection')}
-                            className="group flex items-center gap-2 px-3 py-2 rounded-lg bg-black/20 hover:bg-black/40 backdrop-blur-sm border border-white/10 transition-colors text-white"
+                            className={`group flex items-center gap-2 rounded-full transition-colors ${isNotchMode ? 'p-2 hover:bg-white/10' : 'px-3 py-2 bg-black/20 hover:bg-black/40 backdrop-blur-sm border border-white/10 text-white'}`}
+                            title="Back to Projects"
                          >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                            <span className="font-medium hidden sm:block">All Projects</span>
+                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                            {!isNotchMode && <span className="font-medium hidden sm:block">All Projects</span>}
                          </button>
-                     </div>
-                     <div className="flex items-center gap-3">
+                         
+                         {/* Centered Title in Notch Mode */}
+                         <div className={`absolute left-1/2 -translate-x-1/2 transition-all duration-500 flex items-center gap-2 ${isNotchMode ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'}`}>
+                            <span className="text-white font-bold text-sm truncate max-w-[150px]">{currentGoal?.title}</span>
+                         </div>
+
+                         {/* Add Button */}
                          <button 
                              onClick={openAddModal}
-                             className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white rounded-lg font-bold shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5"
+                             className={`flex items-center justify-center rounded-full transition-all hover:scale-105 active:scale-95 ${
+                                 isNotchMode 
+                                 ? 'w-8 h-8 bg-indigo-500 text-white shadow-lg' 
+                                 : 'px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white font-bold shadow-lg shadow-indigo-500/20 gap-2'
+                             }`}
+                             title="Add Objective"
                          >
                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                             <span className="hidden sm:inline">Add Objective</span>
+                             {!isNotchMode && <span className="hidden sm:inline">Add Objective</span>}
                          </button>
-                     </div>
-                </header>
-
-                <div className="relative z-10 px-8 mt-4">
-                    <div className="flex flex-col">
+                    </div>
+                    
+                    {/* Hero Title & Desc - Only visible in Hero Mode */}
+                    <div className={`mt-auto transition-all duration-500 transform origin-bottom-left ${isNotchMode ? 'opacity-0 scale-75 translate-y-10' : 'opacity-100 scale-100 translate-y-0'}`}>
                          <div className="flex items-center gap-2 mb-2">
                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-white/20 text-white border border-white/10 uppercase tracking-wide backdrop-blur-sm">
                                  {currentGoal?.type}
                              </span>
                          </div>
-                        <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight">{currentGoal?.title}</h1>
+                        <h1 className="text-4xl md:text-5xl font-bold text-white tracking-tight leading-tight">{currentGoal?.title}</h1>
                         <p className="text-slate-300 mt-2 max-w-2xl line-clamp-1">{currentGoal?.description}</p>
                     </div>
                 </div>
              </div>
 
-             {/* Content */}
-             <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50 dark:bg-slate-950 -mt-8 relative z-20 rounded-t-3xl border-t border-slate-200 dark:border-slate-800">
-                 <div className="max-w-5xl mx-auto py-10 px-4 sm:px-8">
+             {/* Content Scroll Area */}
+             <div 
+                className="flex-1 overflow-y-auto custom-scrollbar relative bg-slate-50 dark:bg-slate-950"
+                onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+             >
+                 {/* Spacer for Header */}
+                 <div className="h-[340px] w-full"></div>
+
+                 {/* Actual Content - Shifted up slightly to overlap with header curve in hero mode */}
+                 <div className="max-w-5xl mx-auto pb-10 px-4 sm:px-8 -mt-8 relative z-10">
                      
-                     {/* Modern Stats Row */}
-                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                     {/* Task List (Topics/Checklist) */}
+                     <PaperView 
+                        viewMode={currentView}
+                        goals={goals}
+                        tasks={tasks}
+                        onTaskClick={handleTaskClick}
+                        onDeleteTask={handleDeleteTask}
+                        onEditTask={openEditModal}
+                        onToggleBacklog={handleToggleBacklog}
+                        onAddTask={handleSaveTask}
+                        onOpenAddModal={openAddModal}
+                        onMoveSubtasksToBank={handleMoveSubtasksToBank}
+                     />
+
+                     {/* Analytics Section - MOVED BELOW OBJECTIVES */}
+                     <div className="mt-10 mb-10">
+                         <AnalysisPanel goals={currentGoal ? [currentGoal] : []} tasks={projectTasks} />
+                     </div>
+
+                     {/* Modern Stats Row - MOVED TO BOTTOM */}
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10 mb-4">
                         {/* Card 1 */}
                         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between group hover:border-indigo-500/30 transition-colors">
                             <div>
@@ -649,24 +877,33 @@ const App: React.FC = () => {
                         </div>
                      </div>
 
-                     {/* Project Specific Analytics */}
-                     <div className="mb-12">
-                        <CategoryDistributionChart tasks={projectTasks} title="Project Focus Distribution" />
+                     {/* Import/Export Actions */}
+                     <div className="bg-slate-100 dark:bg-slate-900/50 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4 border border-slate-200 dark:border-slate-800 mb-10">
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => handleExportProjectJSON(currentView)}
+                                className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold border border-slate-200 dark:border-slate-700 hover:border-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all shadow-sm"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                Save Project (JSON)
+                            </button>
+                             <button
+                                onClick={handleImportClick}
+                                className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold border border-slate-200 dark:border-slate-700 hover:border-emerald-500 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all shadow-sm"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                                Import Project (JSON)
+                            </button>
+                        </div>
+                         <button
+                            onClick={() => handleExportProjectCSV(currentView)}
+                            className="flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-sm font-bold border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-all shadow-sm"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            Export to Timesheet (CSV)
+                        </button>
                      </div>
 
-                     {/* Task List (Topics/Checklist) */}
-                     <PaperView 
-                        viewMode={currentView}
-                        goals={goals}
-                        tasks={tasks}
-                        onTaskClick={handleTaskClick}
-                        onDeleteTask={handleDeleteTask}
-                        onEditTask={openEditModal}
-                        onToggleBacklog={handleToggleBacklog}
-                        onAddTask={handleSaveTask}
-                        onOpenAddModal={openAddModal}
-                        onMoveSubtasksToBank={handleMoveSubtasksToBank}
-                     />
                  </div>
              </div>
 
@@ -697,7 +934,7 @@ const App: React.FC = () => {
     );
   }
 
-  // Default App State (Sidebar + Main Content) - Used for Dashboard
+  // Default App State (Sidebar + Main Content) - Used for Dashboard & Timesheet
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans overflow-hidden transition-colors duration-200">
       
@@ -721,6 +958,7 @@ const App: React.FC = () => {
             <h2 className="text-lg font-semibold text-slate-800 dark:text-white truncate">
                 {currentView === 'all' ? 'All Tasks' : 
                  currentView === 'dashboard' ? 'Dashboard' :
+                 currentView === 'timesheet' ? 'Timesheet & Integration' :
                  goals.find(g => g.id === currentView)?.title || 'Project'}
             </h2>
             <div className="flex items-center gap-4">
@@ -762,18 +1000,15 @@ const App: React.FC = () => {
                             <GoalCard key={goal.id} goal={goal} onAddHours={() => {}} />
                         ))}
                     </section>
-                    <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2">
-                            <AnalysisPanel goals={goals} tasks={tasks} />
-                        </div>
-                        <div className="lg:col-span-1">
-                            <CategoryDistributionChart tasks={tasks} title="Global Time Distribution" />
-                        </div>
+                    <section className="w-full">
+                        <AnalysisPanel goals={goals} tasks={tasks} />
                     </section>
                     <section className="h-80">
                         <ProgressChart goals={goals} />
                     </section>
                  </div>
+            ) : currentView === 'timesheet' ? (
+                <TimesheetView tasks={tasks} goals={goals} onUpdateTask={handleSaveTask} />
             ) : (
                 <PaperView 
                     viewMode={currentView}

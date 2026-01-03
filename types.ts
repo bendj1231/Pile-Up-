@@ -6,15 +6,24 @@ export enum TaskStatus {
 }
 
 export enum TaskCategory {
-  RESEARCH = 'RESEARCH',
-  CREATION = 'CREATION',
-  LEARNING = 'LEARNING',
+  RESEARCH = 'RESEARCH', // Orange
+  CREATION = 'CREATION', // Blue
+  LEARNING = 'LEARNING', // Green
+  ACTIVITY = 'ACTIVITY', // Yellow
+  LEISURE = 'LEISURE',   // Red
   OTHER = 'OTHER',
 }
 
 export enum GoalType {
   MONTHLY = 'MONTHLY',
   FORECAST = 'FORECAST',
+}
+
+export enum TimeOfDay {
+  MORNING = 'Morning',
+  AFTERNOON = 'Afternoon',
+  EVENING = 'Evening',
+  ANY = 'Any',
 }
 
 export interface Subtask {
@@ -49,6 +58,8 @@ export interface Goal {
   targetHours: number;
   loggedHours: number;
   description?: string;
+  dailyTarget?: number; // Desired daily hours
+  preferredTime?: TimeOfDay; // Preferred time of day to work
 }
 
 export interface AnalysisResult {
@@ -63,4 +74,21 @@ export interface TimerState {
   timeLeft: number; // in seconds
   totalDuration: number; // in seconds, for progress calculation
   startTime: number | null;
+}
+
+// --- New Timesheet Types ---
+
+export type TimesheetSource = 'PILE_UP' | 'SCREEN_MONITOR';
+
+export interface TimesheetEntry {
+  id: string;
+  date: string; // ISO Date String YYYY-MM-DD
+  title: string;
+  category: TaskCategory;
+  durationMinutes: number;
+  source: TimesheetSource;
+  notes?: string;
+  rawSourceData?: string; // The raw line from the screen monitor log
+  linkedGoalId?: string;
+  linkedGoalTitle?: string;
 }

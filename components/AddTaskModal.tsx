@@ -127,9 +127,11 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
       if (!isSelected) return 'bg-slate-50 dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700';
       
       switch (cat) {
-          case TaskCategory.RESEARCH: return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700/50';
-          case TaskCategory.CREATION: return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/50';
+          case TaskCategory.RESEARCH: return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-700/50';
+          case TaskCategory.CREATION: return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700/50';
           case TaskCategory.LEARNING: return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-700/50';
+          case TaskCategory.ACTIVITY: return 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-300 dark:border-yellow-700/50';
+          case TaskCategory.LEISURE: return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/50';
           default: return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600';
       }
   };
@@ -224,9 +226,11 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({ isOpen, onClose, onSave, go
                         <li key={sub.id} className="flex items-center justify-between text-sm bg-white dark:bg-slate-800 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
                             <div className="flex items-center gap-2 overflow-hidden">
                                 <div className={`w-2 h-2 rounded-full shrink-0 ${
-                                    sub.category === TaskCategory.RESEARCH ? 'bg-blue-500' :
-                                    sub.category === TaskCategory.CREATION ? 'bg-red-500' :
-                                    sub.category === TaskCategory.LEARNING ? 'bg-emerald-500' : 'bg-slate-400'
+                                    sub.category === TaskCategory.RESEARCH ? 'bg-orange-500' :
+                                    sub.category === TaskCategory.CREATION ? 'bg-blue-500' :
+                                    sub.category === TaskCategory.LEARNING ? 'bg-emerald-500' : 
+                                    sub.category === TaskCategory.ACTIVITY ? 'bg-yellow-400' :
+                                    sub.category === TaskCategory.LEISURE ? 'bg-red-500' : 'bg-slate-400'
                                 }`}></div>
                                 <span className="text-slate-700 dark:text-slate-300 truncate">{sub.title}</span>
                             </div>

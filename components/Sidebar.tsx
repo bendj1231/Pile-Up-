@@ -27,11 +27,11 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-6 flex items-center gap-3">
         <img 
             src="https://lh3.googleusercontent.com/d/1bHJPW95-8OOP_AFWVJboqNIFFCvru2e2" 
-            alt="Pile Up Logo" 
+            alt="Time Out Logo" 
             className="w-10 h-10 object-contain drop-shadow-sm"
         />
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">
-          Pile Up
+          Time Out
         </h1>
       </div>
 
@@ -74,6 +74,21 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <div className="flex items-center gap-3">
                     <svg className={`w-4 h-4 ${currentView === 'dashboard' ? 'text-indigo-500' : 'text-slate-400 group-hover:text-indigo-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                     Dashboard
+                </div>
+              </button>
+            </li>
+             <li>
+              <button
+                onClick={() => onViewChange('timesheet')}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors group ${
+                  currentView === 'timesheet' 
+                    ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400' 
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                    <svg className={`w-4 h-4 ${currentView === 'timesheet' ? 'text-indigo-500' : 'text-slate-400 group-hover:text-indigo-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    Timesheet
                 </div>
               </button>
             </li>

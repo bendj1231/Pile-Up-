@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Task, Goal, TaskStatus, TaskCategory, Subtask } from '../types';
+import { categorizeTask } from '../services/geminiService';
 
 interface PaperViewProps {
   viewMode: 'all' | string; // 'all' or goalId
@@ -24,9 +25,11 @@ const PaperView: React.FC<PaperViewProps> = ({ viewMode, goals, tasks, onTaskCli
   // Helper to get category color dot
   const getCategoryColor = (cat: TaskCategory) => {
     switch (cat) {
-        case TaskCategory.RESEARCH: return 'bg-blue-500 dark:bg-blue-400';
-        case TaskCategory.CREATION: return 'bg-red-500 dark:bg-red-400';
+        case TaskCategory.RESEARCH: return 'bg-orange-500 dark:bg-orange-400';
+        case TaskCategory.CREATION: return 'bg-blue-500 dark:bg-blue-400';
         case TaskCategory.LEARNING: return 'bg-emerald-500 dark:bg-emerald-400';
+        case TaskCategory.ACTIVITY: return 'bg-yellow-400 dark:bg-yellow-300';
+        case TaskCategory.LEISURE: return 'bg-red-500 dark:bg-red-400';
         default: return 'bg-slate-400';
     }
   };
@@ -51,6 +54,9 @@ const PaperView: React.FC<PaperViewProps> = ({ viewMode, goals, tasks, onTaskCli
   // State for Bank Inputs (keyed by goalId)
   const [bankInputs, setBankInputs] = useState<{[key: string]: string}>({});
   
+  // State to track loading status of categorization for a specific goal
+  const [processingBankGoal, setProcessingBankGoal] = useState<string | null>(null);
+  
   // State for Inline Creation (keyed by goalId)
   const [creatingForGoal, setCreatingForGoal] = useState<string | null>(null);
 
@@ -61,18 +67,29 @@ const PaperView: React.FC<PaperViewProps> = ({ viewMode, goals, tasks, onTaskCli
       setBankInputs(prev => ({...prev, [goalId]: value}));
   };
 
-  const handleBankSubmit = (goalId: string) => {
+  const handleBankSubmit = async (goalId: string) => {
       const title = bankInputs[goalId];
       if (title && title.trim()) {
+          setProcessingBankGoal(goalId);
+          
+          let category = TaskCategory.OTHER;
+          try {
+             // Auto-categorize before adding
+             category = await categorizeTask(title);
+          } catch(e) { 
+              console.error("Categorization failed", e); 
+          }
+
           onAddTask({
               title: title.trim(),
-              category: TaskCategory.OTHER,
+              category: category,
               plannedDurationMinutes: 30, // Default
               linkedGoalId: goalId,
               subtasks: [],
               isBacklog: true // Always add to backlog
           });
           setBankInputs(prev => ({...prev, [goalId]: ''}));
+          setProcessingBankGoal(null);
       }
   };
 
@@ -124,6 +141,7 @@ const PaperView: React.FC<PaperViewProps> = ({ viewMode, goals, tasks, onTaskCli
         const backlogTasks = getBacklogTasksForGoal(goal.id);
         const completedProjectTasks = getCompletedTasksForGoal(goal.id);
         const isCreating = creatingForGoal === goal.id;
+        const isProcessing = processingBankGoal === goal.id;
 
         return (
           <section key={goal.id} className="group/section bg-white/5 dark:bg-slate-900/0 rounded-3xl p-2 md:p-6 transition-colors">
@@ -140,70 +158,97 @@ const PaperView: React.FC<PaperViewProps> = ({ viewMode, goals, tasks, onTaskCli
                 </div>
             )}
             
-            {/* Active Tasks List */}
-            <div className="mb-6">
-                <div className="flex items-center justify-between mb-4 px-2">
-                    <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Active Objectives</h4>
-                </div>
-                
-                <div className="space-y-3">
-                    {activeTasks.length === 0 && !isCreating && (
-                        <div className="p-8 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center text-slate-400 text-sm">
-                            <p>No active objectives. Pull from backlog or create new.</p>
-                        </div>
-                    )}
-                    {activeTasks.map(task => (
-                        <TaskItem 
-                            key={task.id} 
-                            task={task} 
-                            isExpanded={expandedTaskId === task.id}
-                            onToggleExpand={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
-                            onStartFocus={() => onTaskClick(task)}
-                            onUpdate={handleTaskUpdate}
-                            onDelete={() => onDeleteTask(task.id)}
-                            onToggleBacklog={() => onToggleBacklog(task)}
-                            categoryColor={getCategoryColor(task.category)}
-                            backlogTasks={backlogTasks}
-                            onConsumeBacklogTask={onDeleteTask}
-                            onMoveSubtasksToBank={onMoveSubtasksToBank}
-                        />
-                    ))}
+            {/* Active Tasks List - Black Box Theme */}
+            <div className="mb-10 relative">
+                {/* Blackboard Container */}
+                <div className="bg-slate-950 rounded-[2.5rem] p-6 md:p-8 shadow-2xl border border-slate-800/50 relative overflow-hidden ring-1 ring-white/5">
+                    {/* Subtle texture or gradient overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-slate-900/50 to-slate-950/50 pointer-events-none"></div>
                     
-                    {/* Inline Editor Appended Here */}
-                    {isCreating && (
-                        <InlineTaskEditor 
-                            goalId={goal.id}
-                            onSave={(task) => {
-                                onAddTask(task);
-                                setCreatingForGoal(null);
-                            }}
-                            onCancel={() => setCreatingForGoal(null)}
-                            backlogTasks={backlogTasks}
-                            onConsumeBacklogTask={onDeleteTask}
-                        />
-                    )}
-                </div>
-            </div>
-
-            {/* DIVIDER / ADD BUTTON */}
-            {!isCreating && (
-                <div className="flex items-center justify-center py-4 relative group/add">
-                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                        <div className="w-full border-t border-slate-200 dark:border-slate-800 opacity-30"></div>
+                    {/* Header */}
+                    <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-800/60 relative z-10">
+                        <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest flex items-center gap-3">
+                            <span className="flex h-3 w-3 relative">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                            </span>
+                            Objectives / Job
+                        </h4>
+                        
+                        <div className="flex items-center gap-3">
+                            {/* Countdown Component */}
+                            <GoalCountdown deadline={goal.deadline} />
+                            
+                            <span className="text-[10px] font-bold text-slate-500 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
+                                {activeTasks.length} PENDING
+                            </span>
+                        </div>
                     </div>
-                    <div className="relative">
+                
+                    <div className="space-y-4 relative z-10">
+                        {activeTasks.length === 0 && !isCreating && (
+                            <div className="flex flex-col items-center justify-center py-16 text-slate-600 border-2 border-dashed border-slate-800 rounded-2xl bg-slate-900/20">
+                                <div className="w-16 h-16 mb-4 rounded-full bg-slate-900 flex items-center justify-center border border-slate-800">
+                                     <svg className="w-6 h-6 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+                                </div>
+                                <p className="text-sm font-medium text-slate-400">Board is clear</p>
+                                <p className="text-xs text-slate-600 mt-1">Add an objective to start focus</p>
+                            </div>
+                        )}
+                        
+                        {activeTasks.map(task => (
+                            <TaskItem 
+                                key={task.id} 
+                                task={task} 
+                                isExpanded={expandedTaskId === task.id}
+                                onToggleExpand={() => setExpandedTaskId(expandedTaskId === task.id ? null : task.id)}
+                                onStartFocus={() => onTaskClick(task)}
+                                onUpdate={handleTaskUpdate}
+                                onDelete={() => onDeleteTask(task.id)}
+                                onToggleBacklog={() => onToggleBacklog(task)}
+                                categoryColor={getCategoryColor(task.category)}
+                                backlogTasks={backlogTasks}
+                                onConsumeBacklogTask={onDeleteTask}
+                                onMoveSubtasksToBank={onMoveSubtasksToBank}
+                                variant="blackboard"
+                            />
+                        ))}
+                        
+                        {/* Inline Editor */}
+                        {isCreating && (
+                            <div className="bg-slate-900/50 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl relative z-20">
+                                <InlineTaskEditor 
+                                    goalId={goal.id}
+                                    onSave={(task) => {
+                                        onAddTask(task);
+                                        setCreatingForGoal(null);
+                                    }}
+                                    onCancel={() => setCreatingForGoal(null)}
+                                    backlogTasks={backlogTasks}
+                                    onConsumeBacklogTask={onDeleteTask}
+                                />
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                 {/* DIVIDER / ADD BUTTON */}
+                {!isCreating && (
+                    <div className="absolute -bottom-5 left-0 right-0 flex items-center justify-center z-20">
                         <button
                             onClick={() => setCreatingForGoal(goal.id)}
-                            className="flex items-center justify-center text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-300 transform hover:scale-125 hover:rotate-90 z-10"
+                            className="flex items-center justify-center w-12 h-12 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full shadow-lg shadow-indigo-900/50 hover:shadow-indigo-500/40 transition-all duration-300 transform hover:scale-110 active:scale-95 border-4 border-slate-50 dark:border-slate-950 group"
                             title="Add New Objective"
                         >
-                            <svg className="w-8 h-8 drop-shadow-md" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                             </svg>
                         </button>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
+            
+            <div className="h-4"></div> {/* Spacer for the add button overlap */}
 
             {/* Backlog / Memory Tasks Bank */}
             <div className="bg-slate-100/50 dark:bg-slate-900/50 rounded-3xl p-6 border border-slate-200/50 dark:border-slate-800/50 mt-6">
@@ -214,7 +259,7 @@ const PaperView: React.FC<PaperViewProps> = ({ viewMode, goals, tasks, onTaskCli
                     <h4 className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Memory Tasks Bank</h4>
                     <span className="ml-auto text-xs bg-slate-200 dark:bg-slate-800 text-slate-500 font-bold px-2 py-1 rounded-md">{backlogTasks.length}</span>
                  </div>
-                 <p className="text-xs text-slate-400 mb-4 ml-11">Individual tasks in relation to your objectives</p>
+                 <p className="text-xs text-slate-400 mb-4 ml-11">Individual tasks in relation to your objectives. Color coding is automatic.</p>
                 
                 {/* Apple Glass Input for Bank */}
                 <div className="mb-6 relative group">
@@ -226,17 +271,26 @@ const PaperView: React.FC<PaperViewProps> = ({ viewMode, goals, tasks, onTaskCli
                                 value={bankInputs[goal.id] || ''}
                                 onChange={(e) => handleBankInputChange(goal.id, e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleBankSubmit(goal.id)}
-                                placeholder="Add multiple tasks here..."
-                                className="w-full bg-transparent border-none focus:outline-none focus:ring-0 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm font-medium py-3"
+                                placeholder="Add task (auto-colored)..."
+                                disabled={isProcessing}
+                                className="w-full bg-transparent border-none focus:outline-none focus:ring-0 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 text-sm font-medium py-3 disabled:opacity-50"
                             />
                         </div>
                         <button
                             onClick={() => handleBankSubmit(goal.id)}
-                            className="bg-white dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 text-indigo-600 dark:text-indigo-400 rounded-xl p-2.5 shadow-sm transition-all transform hover:scale-105"
+                            disabled={isProcessing}
+                            className="bg-white dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 text-indigo-600 dark:text-indigo-400 rounded-xl p-2.5 shadow-sm transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                         >
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
+                            {isProcessing ? (
+                                <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            ) : (
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                            )}
                         </button>
                     </div>
                 </div>
@@ -300,6 +354,57 @@ const PaperView: React.FC<PaperViewProps> = ({ viewMode, goals, tasks, onTaskCli
   );
 };
 
+// Component for Countdown
+const GoalCountdown: React.FC<{ deadline: string }> = ({ deadline }) => {
+    const [timeLeft, setTimeLeft] = useState<{d: number, h: number, m: number} | null>(null);
+
+    useEffect(() => {
+        const calculate = () => {
+            const now = new Date().getTime();
+            const target = new Date(deadline).getTime();
+            const diff = target - now;
+            
+            if (diff <= 0) return null;
+            
+            return {
+                d: Math.floor(diff / (1000 * 60 * 60 * 24)),
+                h: Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)),
+                m: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+            };
+        };
+        
+        setTimeLeft(calculate());
+        const timer = setInterval(() => setTimeLeft(calculate()), 60000); // Update every minute
+        return () => clearInterval(timer);
+    }, [deadline]);
+
+    // Format date: "Oct 24"
+    const dateObj = new Date(deadline);
+    const dateStr = dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+    if (!timeLeft) {
+        return (
+             <div className="flex items-center gap-2 bg-red-900/20 px-3 py-1.5 rounded-full border border-red-900/30">
+                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Due {dateStr}</span>
+                <span className="text-xs font-bold text-red-500">Expired</span>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex items-center gap-3 bg-slate-900 px-3 py-1.5 rounded-full border border-slate-800">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider hidden sm:inline">{dateStr}</span>
+            <div className="flex items-center gap-1 text-xs font-mono">
+                <span className="text-indigo-400 font-bold">{timeLeft.d}d</span>
+                <span className="text-slate-600">:</span>
+                <span className="text-slate-300 font-bold">{timeLeft.h}h</span>
+                <span className="text-slate-600">:</span>
+                <span className="text-slate-300 font-bold">{timeLeft.m}m</span>
+            </div>
+        </div>
+    );
+};
+
 interface TaskItemProps {
     task: Task;
     isExpanded: boolean;
@@ -313,6 +418,7 @@ interface TaskItemProps {
     backlogTasks?: Task[];
     onConsumeBacklogTask?: (id: string) => void;
     onMoveSubtasksToBank?: (subtasks: Subtask[], goalId?: string) => void;
+    variant?: 'default' | 'blackboard';
 }
 
 const TaskItem: React.FC<TaskItemProps> = ({ 
@@ -327,34 +433,44 @@ const TaskItem: React.FC<TaskItemProps> = ({
     isBacklogItem,
     backlogTasks,
     onConsumeBacklogTask,
-    onMoveSubtasksToBank
+    onMoveSubtasksToBank,
+    variant = 'default'
 }) => {
     if (isExpanded) {
         return (
-            <ExpandedTaskCard 
-                task={task}
-                onSave={(updated) => {
-                    onUpdate(updated);
-                    onToggleExpand(); 
-                }}
-                onCancel={onToggleExpand}
-                onStartFocus={onStartFocus}
-                onDelete={onDelete}
-                backlogTasks={backlogTasks}
-                onConsumeBacklogTask={onConsumeBacklogTask}
-                onMoveSubtasksToBank={onMoveSubtasksToBank}
-            />
+            <div className={`${variant === 'blackboard' ? 'bg-slate-900 border border-slate-700 rounded-2xl' : ''}`}>
+                <ExpandedTaskCard 
+                    task={task}
+                    onSave={(updated, shouldClose = true) => {
+                        onUpdate(updated);
+                        if (shouldClose) onToggleExpand(); 
+                    }}
+                    onCancel={onToggleExpand}
+                    onStartFocus={onStartFocus}
+                    onDelete={onDelete}
+                    backlogTasks={backlogTasks}
+                    onConsumeBacklogTask={onConsumeBacklogTask}
+                    onMoveSubtasksToBank={onMoveSubtasksToBank}
+                />
+            </div>
         );
     }
+
+    const isBlackboard = variant === 'blackboard';
+
+    const baseClasses = "group flex items-start gap-4 p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden";
+    const blackboardClasses = "bg-slate-900/80 border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900 shadow-md";
+    const defaultClasses = "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:shadow-lg hover:border-indigo-500/30";
+    const backlogClasses = "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700";
+
+    const containerClass = `${baseClasses} ${
+        isBacklogItem ? backlogClasses : (isBlackboard ? blackboardClasses : defaultClasses)
+    }`;
 
     return (
         <div 
             onClick={isBacklogItem ? undefined : onToggleExpand}
-            className={`group flex items-start gap-4 p-4 rounded-xl border transition-all cursor-pointer relative overflow-hidden ${
-                isBacklogItem 
-                ? 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-700' 
-                : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:shadow-lg hover:border-indigo-500/30'
-            }`}
+            className={containerClass}
         >
             <div className={`absolute left-0 top-0 bottom-0 w-1 ${categoryColor}`}></div>
 
@@ -364,7 +480,9 @@ const TaskItem: React.FC<TaskItemProps> = ({
                     className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                         isBacklogItem 
                         ? 'border-slate-300 dark:border-slate-600 hover:bg-emerald-500 hover:border-emerald-500 text-transparent hover:text-white' 
-                        : 'border-slate-300 dark:border-slate-600 hover:bg-indigo-500 hover:border-indigo-500 text-transparent hover:text-white'
+                        : (isBlackboard 
+                            ? 'border-slate-700 hover:bg-indigo-500 hover:border-indigo-500 text-transparent hover:text-white bg-slate-800'
+                            : 'border-slate-300 dark:border-slate-600 hover:bg-indigo-500 hover:border-indigo-500 text-transparent hover:text-white')
                     }`}
                     title={isBacklogItem ? "Move to Active" : "Move to Bank"}
                 >
@@ -378,16 +496,18 @@ const TaskItem: React.FC<TaskItemProps> = ({
 
             <div className="flex-1">
                 <div className="flex items-center justify-between mb-1">
-                    <h4 className={`font-bold text-slate-800 dark:text-slate-100 ${isBacklogItem ? 'text-sm' : 'text-lg'}`}>{task.title}</h4>
+                    <h4 className={`font-bold ${isBlackboard ? 'text-white' : 'text-slate-800 dark:text-slate-100'} ${isBacklogItem ? 'text-sm' : 'text-lg'}`}>{task.title}</h4>
                     {task.plannedDurationMinutes > 0 && (
-                        <span className="text-xs font-mono font-bold text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">
+                        <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
+                            isBlackboard ? 'text-slate-400 bg-slate-800' : 'text-slate-400 bg-slate-100 dark:bg-slate-700'
+                        }`}>
                             {task.plannedDurationMinutes}m
                         </span>
                     )}
                 </div>
                 
                 {!isBacklogItem && (
-                    <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 mt-2">
+                    <div className={`flex items-center gap-4 text-xs mt-2 ${isBlackboard ? 'text-slate-400' : 'text-slate-500 dark:text-slate-400'}`}>
                         {task.subtasks.length > 0 ? (
                             <div className="flex items-center gap-1">
                                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
@@ -461,7 +581,7 @@ const InlineTaskEditor: React.FC<{
 interface ExpandedTaskCardProps {
     task: Task;
     isNew?: boolean;
-    onSave: (task: Task) => void;
+    onSave: (task: Task, shouldClose?: boolean) => void;
     onCancel: () => void;
     onStartFocus?: () => void;
     onDelete?: () => void;
@@ -479,10 +599,17 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
     const [newSubtask, setNewSubtask] = useState('');
     const [newSubtaskCategory, setNewSubtaskCategory] = useState<TaskCategory>(task.category);
     
+    // Suggestion State
+    const [showBacklogSuggestions, setShowBacklogSuggestions] = useState(false);
+
     // Focus Mode State
     const [isFocusing, setIsFocusing] = useState(false);
     const [timeLeft, setTimeLeft] = useState(task.plannedDurationMinutes * 60);
     const [isReviewing, setIsReviewing] = useState(false);
+    
+    // Quick Start State (Specific to Subtask)
+    const [quickStartId, setQuickStartId] = useState<string | null>(null);
+    const [quickStartDuration, setQuickStartDuration] = useState<number>(25);
     
     // Track active subtask for recording time
     const [activeSubtaskId, setActiveSubtaskId] = useState<string | null>(null);
@@ -519,22 +646,7 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
                     }
                     subtaskElapsedRef.current[activeSubtaskId]++;
                     
-                    // Periodically update visible state (every 10s or just rely on ref for final save?)
-                    // To show live updates, we need state. Let's update state every second for the active one only?
-                    // Optimization: Only update React state every 60s or on stop? 
-                    // Let's stick to simple state update for now unless performance hit.
-                    setSubtasks(prev => prev.map(s => {
-                        if (s.id === activeSubtaskId) {
-                            // Only increment internal minute counter if seconds cross 60
-                            // Easier: Use decimal minutes for accuracy or just seconds. The type is number.
-                            // Let's keep seconds in ref, and just force a re-render for UI if needed.
-                            // Actually, let's just increment a local 'tick' state to force render if we want to show seconds?
-                            // For simplicity, let's just assume we update the `subtasks` actualMinutes on STOP.
-                            // But user wants to see "recorded data".
-                            return s; 
-                        }
-                        return s;
-                    }));
+                    // Force refresh for UI update occasionally if needed, but we trust ref for final calc
                 }
             }, 1000);
         } else if (isFocusing && timeLeft === 0) {
@@ -575,8 +687,7 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
     };
 
     const handleExtendSession = () => {
-        // Find next incomplete subtask after current "focus" (assuming order matters?)
-        // Let's modify the subtask allocations directly.
+        // Find next incomplete subtask after current "focus"
         const firstIncompleteIdx = subtasks.findIndex(s => !s.isCompleted);
         const nextIncompleteIdx = subtasks.findIndex((s, i) => !s.isCompleted && i > firstIncompleteIdx);
 
@@ -624,11 +735,11 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
             subtasks: keptSubtasks,
             actualDurationMinutes: (task.actualDurationMinutes || 0) + totalActual,
             status: keptSubtasks.length > 0 ? TaskStatus.COMPLETED : TaskStatus.TODO 
-        });
+        }, true);
         onCancel();
     };
 
-    const handleSave = () => {
+    const handleSave = (shouldClose = true) => {
         if (!title.trim()) return;
         
         // Ensure we save any pending time if we were just focusing
@@ -651,14 +762,15 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
             plannedDurationMinutes: duration,
             category,
             subtasks: finalSubtasks
-        });
-        if (isNew) onCancel(); 
+        }, shouldClose);
+        
+        if (isNew && shouldClose) onCancel(); 
     };
 
     // Auto-save on blur for existing tasks to feel "live"
     const handleBlur = () => {
         if (!isNew && title.trim()) {
-            handleSave();
+            handleSave(false);
         }
     };
 
@@ -674,20 +786,55 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
             const updated = [...subtasks, newSt];
             setSubtasks(updated);
             setNewSubtask('');
-            if (!isNew) onSave({ ...task, subtasks: updated });
+            if (!isNew) onSave({ ...task, subtasks: updated }, false);
         }
     };
 
     const toggleSubtask = (id: string) => {
         const updated = subtasks.map(s => s.id === id ? { ...s, isCompleted: !s.isCompleted } : s);
         setSubtasks(updated);
-        if (!isNew) onSave({ ...task, subtasks: updated });
+        if (!isNew) onSave({ ...task, subtasks: updated }, false);
+    };
+
+    // New handler for clicking the "bullet"
+    const handleSubtaskClick = (sub: Subtask) => {
+        if (isNew) {
+            // In creation mode, simple toggle
+            toggleSubtask(sub.id);
+            return;
+        }
+
+        if (sub.isCompleted) {
+            toggleSubtask(sub.id); // Toggle off if done
+        } else {
+            // If incomplete, prompt for quick start immediately
+            setQuickStartId(sub.id);
+            setQuickStartDuration(sub.allocatedMinutes || 25);
+        }
+    };
+
+    const confirmQuickStart = () => {
+        if (!quickStartId) return;
+        // Update allocation in case user changed it in popup
+        updateSubtaskAllocation(quickStartId, quickStartDuration);
+        
+        setActiveSubtaskId(quickStartId);
+        setTimeLeft(quickStartDuration * 60);
+        setIsFocusing(true);
+        setQuickStartId(null);
+    };
+
+    const confirmQuickMarkDone = () => {
+         if (quickStartId) {
+            toggleSubtask(quickStartId);
+            setQuickStartId(null);
+         }
     };
 
     const removeSubtask = (id: string) => {
         const updated = subtasks.filter(s => s.id !== id);
         setSubtasks(updated);
-        if (!isNew) onSave({ ...task, subtasks: updated });
+        if (!isNew) onSave({ ...task, subtasks: updated }, false);
     };
     
     const updateSubtaskAllocation = (id: string, minutes: number) => {
@@ -695,20 +842,20 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
         setSubtasks(updated);
         const total = updated.reduce((acc, curr) => acc + (curr.allocatedMinutes || 0), 0);
         if (total > 0) setDuration(total);
-        if (!isNew) onSave({ ...task, subtasks: updated, plannedDurationMinutes: total > 0 ? total : duration });
+        if (!isNew) onSave({ ...task, subtasks: updated, plannedDurationMinutes: total > 0 ? total : duration }, false);
     };
 
     const handlePullFromBacklog = (bTask: Task) => {
         const newSt: Subtask = { 
-            id: Date.now().toString(), 
+            id: Date.now().toString() + Math.random().toString().slice(2), // Ensure unique ID
             title: bTask.title, 
             isCompleted: false,
-            category: bTask.category,
-            allocatedMinutes: 30 
+            category: bTask.category, // Use category from backlog task
+            allocatedMinutes: bTask.plannedDurationMinutes || 30 // Inherit planned duration from backlog task
         };
         const updated = [...subtasks, newSt];
         setSubtasks(updated);
-        if (!isNew) onSave({ ...task, subtasks: updated });
+        if (!isNew) onSave({ ...task, subtasks: updated }, false);
         if (onConsumeBacklogTask) {
             onConsumeBacklogTask(bTask.id);
         }
@@ -719,10 +866,14 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
         const targetCat = cat || TaskCategory.OTHER;
         switch (targetCat) {
             case TaskCategory.RESEARCH: 
-                return 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-900/40';
+                return 'bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800 dark:hover:bg-orange-900/40';
             case TaskCategory.LEARNING: 
                 return 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800 dark:hover:bg-emerald-900/40';
             case TaskCategory.CREATION: 
+                return 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800 dark:hover:bg-blue-900/40';
+            case TaskCategory.ACTIVITY:
+                return 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-300 dark:border-yellow-800 dark:hover:bg-yellow-900/40';
+            case TaskCategory.LEISURE:
                 return 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800 dark:hover:bg-red-900/40';
             default: 
                 return 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 dark:hover:bg-slate-700';
@@ -733,10 +884,14 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
         const targetCat = cat || TaskCategory.OTHER;
         switch (targetCat) {
             case TaskCategory.RESEARCH: 
-                return 'border-l-4 border-l-blue-500 bg-blue-50/50 dark:bg-blue-900/10';
+                return 'border-l-4 border-l-orange-500 bg-orange-50/50 dark:bg-orange-900/10';
             case TaskCategory.LEARNING: 
                 return 'border-l-4 border-l-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/10';
             case TaskCategory.CREATION: 
+                return 'border-l-4 border-l-blue-500 bg-blue-50/50 dark:bg-blue-900/10';
+            case TaskCategory.ACTIVITY:
+                return 'border-l-4 border-l-yellow-400 bg-yellow-50/50 dark:bg-yellow-900/10';
+            case TaskCategory.LEISURE:
                 return 'border-l-4 border-l-red-500 bg-red-50/50 dark:bg-red-900/10';
             default: 
                 return 'border-l-4 border-l-slate-300 dark:border-l-slate-600 bg-slate-50 dark:bg-slate-900';
@@ -745,9 +900,11 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
 
     const getCategoryColor = (cat: TaskCategory) => {
       switch (cat) {
-          case TaskCategory.RESEARCH: return 'bg-blue-500';
-          case TaskCategory.CREATION: return 'bg-red-500';
+          case TaskCategory.RESEARCH: return 'bg-orange-500';
+          case TaskCategory.CREATION: return 'bg-blue-500';
           case TaskCategory.LEARNING: return 'bg-emerald-500';
+          case TaskCategory.ACTIVITY: return 'bg-yellow-400';
+          case TaskCategory.LEISURE: return 'bg-red-500';
           default: return 'bg-slate-400';
       }
     };
@@ -877,6 +1034,59 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
     // --- DEFAULT EDIT VIEW ---
     return (
         <div className={`bg-white dark:bg-slate-800 rounded-2xl border-2 border-indigo-500/50 shadow-xl overflow-hidden transition-all relative ${isNew ? 'animate-expand' : 'animate-fade-in-up'}`}>
+            {/* Quick Start Overlay */}
+            {quickStartId && (
+                <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 rounded-2xl animate-fade-in">
+                     <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-2xl w-full max-w-sm border border-slate-200 dark:border-slate-700 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"></div>
+                        
+                        <div className="text-center mb-6">
+                            <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Start Now</h3>
+                            <p className="text-slate-500 dark:text-slate-400 text-sm truncate px-4">
+                                {subtasks.find(s => s.id === quickStartId)?.title}
+                            </p>
+                        </div>
+
+                        <div className="flex items-center justify-center mb-8">
+                             <div className="relative">
+                                <input 
+                                    type="number" 
+                                    min="1"
+                                    value={quickStartDuration}
+                                    onChange={(e) => setQuickStartDuration(Math.max(1, parseInt(e.target.value) || 0))}
+                                    className="text-5xl font-bold text-center bg-slate-50 dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 w-32 h-20 rounded-xl focus:outline-none border-2 border-slate-200 dark:border-slate-700 focus:border-indigo-500 transition-colors shadow-inner"
+                                    autoFocus
+                                />
+                                <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-400 uppercase tracking-widest">Minutes</span>
+                             </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            <button 
+                                onClick={confirmQuickStart}
+                                className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-indigo-500/25 transition-all transform hover:-translate-y-0.5 active:translate-y-0"
+                            >
+                                Start Timer
+                            </button>
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={confirmQuickMarkDone}
+                                    className="flex-1 py-3 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 rounded-xl font-bold text-sm transition-all border border-emerald-500/20"
+                                >
+                                    Mark Done
+                                </button>
+                                <button 
+                                    onClick={() => setQuickStartId(null)}
+                                    className="flex-1 py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-xl font-bold text-sm transition-all"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                     </div>
+                </div>
+            )}
+
             <div className="p-6 space-y-5">
                 {/* Header: Title & Category */}
                 <div className="flex items-start gap-4">
@@ -886,7 +1096,7 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
                             const next = cats[(cats.indexOf(category) + 1) % cats.length];
                             setCategory(next);
                             setNewSubtaskCategory(next); // Sync subtask input color too
-                            if(!isNew) onSave({...task, category: next});
+                            if(!isNew) onSave({...task, category: next}, false);
                         }}
                         className={`mt-1 flex-shrink-0 w-6 h-6 rounded-full border-2 border-indigo-500 flex items-center justify-center transition-colors`}
                     >
@@ -920,24 +1130,35 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
                 {/* Checklist Section */}
                 <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 border border-slate-100 dark:border-slate-700/50">
                     <div className="flex justify-between items-center mb-3">
-                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Objectives / Checklist</h4>
+                         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">To Do Tasks</h4>
                          <span className="text-[10px] text-slate-400 font-mono">Total: {duration}m</span>
                     </div>
                    
-                    <div className="space-y-2 mb-4">
+                    <div className="space-y-2 mb-2">
                         {subtasks.length === 0 && (
                              <p className="text-xs text-slate-400 italic mb-2">No objectives yet. Add manually or pull from task bank.</p>
                         )}
                         {subtasks.map(sub => (
                             <div key={sub.id} className={`flex items-center gap-3 group/sub p-2 rounded-md transition-all ${getRowColorStyles(sub.category)}`}>
-                                <input 
-                                    type="checkbox" 
-                                    checked={sub.isCompleted} 
-                                    onChange={() => toggleSubtask(sub.id)}
-                                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer ml-1"
-                                />
+                                <div 
+                                    className="cursor-pointer p-1"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSubtaskClick(sub);
+                                    }}
+                                >
+                                    <input 
+                                        type="checkbox" 
+                                        checked={sub.isCompleted} 
+                                        readOnly // Controlled by parent click for custom logic
+                                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer pointer-events-none"
+                                    />
+                                </div>
                                 <div className="flex-1">
-                                    <span className={`block text-sm font-medium ${sub.isCompleted ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-200'}`}>
+                                    <span 
+                                        className={`block text-sm font-medium cursor-pointer ${sub.isCompleted ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-200 hover:text-indigo-500'}`}
+                                        onClick={() => handleSubtaskClick(sub)}
+                                    >
                                         {sub.title}
                                     </span>
                                     {/* Stats Display */}
@@ -974,40 +1195,77 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
                         ))}
                     </div>
                     
-                    {/* Manual Add Input */}
-                    <div className="flex gap-2 mb-4 items-center bg-white dark:bg-slate-800 p-1 pr-2 rounded-lg border border-slate-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-indigo-500/20">
-                         <div className="relative group">
-                            <select
-                                value={newSubtaskCategory}
-                                onChange={(e) => setNewSubtaskCategory(e.target.value as TaskCategory)}
-                                className="appearance-none bg-transparent text-[10px] font-bold uppercase text-slate-500 focus:outline-none cursor-pointer pl-4 pr-6 h-full"
-                            >
-                                {Object.values(TaskCategory).map(cat => (
-                                    <option key={cat} value={cat}>{cat.substring(0, 3)}</option>
-                                ))}
-                            </select>
-                            <div className="absolute left-1 top-1/2 -translate-y-1/2 pointer-events-none">
-                                <div className={`w-2 h-2 rounded-full ${getCategoryColor(newSubtaskCategory)}`}></div>
+                    {/* Manual Add Input - Tightly integrated */}
+                    <div className="relative z-20 mb-4">
+                        <div className="flex gap-2 items-center bg-white dark:bg-slate-800 p-1 pr-2 rounded-lg border border-slate-200 dark:border-slate-700 focus-within:ring-2 focus-within:ring-indigo-500/20 shadow-sm">
+                            <div className="relative group">
+                                <select
+                                    value={newSubtaskCategory}
+                                    onChange={(e) => setNewSubtaskCategory(e.target.value as TaskCategory)}
+                                    className="appearance-none bg-transparent text-[10px] font-bold uppercase text-slate-500 focus:outline-none cursor-pointer pl-4 pr-6 h-full"
+                                >
+                                    {Object.values(TaskCategory).map(cat => (
+                                        <option key={cat} value={cat}>{cat.substring(0, 3)}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute left-1 top-1/2 -translate-y-1/2 pointer-events-none">
+                                    <div className={`w-2 h-2 rounded-full ${getCategoryColor(newSubtaskCategory)}`}></div>
+                                </div>
                             </div>
+                            <div className="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
+                            <input 
+                                type="text"
+                                value={newSubtask}
+                                onChange={(e) => {
+                                    setNewSubtask(e.target.value);
+                                    setShowBacklogSuggestions(true);
+                                }}
+                                onFocus={() => setShowBacklogSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowBacklogSuggestions(false), 200)}
+                                onKeyDown={(e) => e.key === 'Enter' && addSubtask()}
+                                placeholder="Add a task for your objective"
+                                className="flex-1 bg-transparent text-sm focus:outline-none py-1.5 text-slate-700 dark:text-slate-300 placeholder-slate-400"
+                            />
+                            <button 
+                                onClick={addSubtask}
+                                className="text-indigo-600 hover:bg-indigo-50 rounded p-1"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                            </button>
                         </div>
-                        <div className="h-4 w-px bg-slate-200 dark:bg-slate-700"></div>
-                        <input 
-                            type="text"
-                            value={newSubtask}
-                            onChange={(e) => setNewSubtask(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && addSubtask()}
-                            placeholder="Add objective..."
-                            className="flex-1 bg-transparent text-sm focus:outline-none py-1.5 text-slate-700 dark:text-slate-300 placeholder-slate-400"
-                        />
-                        <button 
-                            onClick={addSubtask}
-                            className="text-indigo-600 hover:bg-indigo-50 rounded p-1"
-                        >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                        </button>
+
+                        {/* Backlog Suggestions Dropdown */}
+                        {showBacklogSuggestions && newSubtask.trim().length > 0 && backlogTasks && (
+                             <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden max-h-48 overflow-y-auto z-20 animate-fade-in">
+                                {backlogTasks.filter(t => t.title.toLowerCase().includes(newSubtask.toLowerCase())).map(bTask => (
+                                    <button
+                                        key={bTask.id}
+                                        onClick={() => {
+                                            handlePullFromBacklog(bTask);
+                                            setNewSubtask('');
+                                            setShowBacklogSuggestions(false);
+                                        }}
+                                        className="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 last:border-0 transition-colors flex items-center justify-between group"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-2 h-2 rounded-full ${getCategoryColor(bTask.category)}`}></div>
+                                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                                                {bTask.title}
+                                            </span>
+                                        </div>
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 dark:bg-slate-900 px-2 py-1 rounded group-hover:bg-indigo-50 dark:group-hover:bg-indigo-900/30 group-hover:text-indigo-500">
+                                            Link
+                                        </span>
+                                    </button>
+                                ))}
+                                {backlogTasks.filter(t => t.title.toLowerCase().includes(newSubtask.toLowerCase())).length === 0 && (
+                                     <div className="px-4 py-2 text-xs text-slate-400 italic">No matches in bank. Press Enter to create new.</div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
-                    {/* Task Bank Selection */}
+                    {/* Task Bank Selection (Pills) */}
                     {backlogTasks && backlogTasks.length > 0 && (
                         <div className="pt-3 border-t border-slate-200/50 dark:border-slate-700/50">
                             <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
@@ -1040,7 +1298,7 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
                             onChange={(e) => {
                                 const val = parseInt(e.target.value) || 0;
                                 setDuration(val);
-                                if(!isNew) onSave({...task, plannedDurationMinutes: val});
+                                if(!isNew) onSave({...task, plannedDurationMinutes: val}, false);
                             }}
                             className="w-10 bg-transparent text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none text-right"
                         />
@@ -1066,7 +1324,7 @@ const ExpandedTaskCard: React.FC<ExpandedTaskCardProps> = ({ task, isNew, onSave
                         
                         {isNew ? (
                             <button 
-                                onClick={handleSave}
+                                onClick={() => handleSave(true)}
                                 className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold shadow-lg shadow-indigo-500/25 transition-all flex items-center gap-2"
                             >
                                 Create Objective
