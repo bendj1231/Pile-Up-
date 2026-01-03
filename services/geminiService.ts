@@ -116,7 +116,7 @@ export const getTaskSuggestions = async (title: string): Promise<{ description: 
         For a task titled "${title}", suggest:
         1. A concise description (max 1 sentence).
         2. 3 relevant short keyword tags (topics).
-        3. The most appropriate category from: RESEARCH, CREATION, LEARNING, ACTIVITY, LEISURE, OTHER.
+        3. The most appropriate category from: RESEARCH, CREATION, LEARNING, ACTIVITY, LEISURE, FILE_SORTING, DOCUMENTATION, OTHER.
     `;
 
     try {
@@ -173,8 +173,14 @@ export const categorizeTask = async (title: string): Promise<TaskCategory> => {
 
         5. **RESEARCH**: Investigating, data gathering, or deep diving into a topic.
            Examples: I need to know more about pollution, research on my thesis, look up flight prices.
+        
+        6. **FILE_SORTING**: Organizing digital or physical files.
+           Examples: organizing documents, sorting photos, managing Google Drive, using Finder.
 
-        6. **OTHER**: Anything that strictly does not fit above.
+        7. **DOCUMENTATION**: Writing or updating documentation.
+           Examples: writing a report, updating a wiki, using IA Writer for notes.
+
+        8. **OTHER**: Anything that strictly does not fit above.
 
         Return ONLY the category word (e.g., "ACTIVITY", "LEISURE").
     `;
@@ -191,6 +197,8 @@ export const categorizeTask = async (title: string): Promise<TaskCategory> => {
         if (text?.includes('LEARNING')) return TaskCategory.LEARNING;
         if (text?.includes('ACTIVITY')) return TaskCategory.ACTIVITY;
         if (text?.includes('LEISURE')) return TaskCategory.LEISURE;
+        if (text?.includes('FILE_SORTING')) return TaskCategory.FILE_SORTING;
+        if (text?.includes('DOCUMENTATION')) return TaskCategory.DOCUMENTATION;
         
         return TaskCategory.OTHER;
     } catch (error) {
@@ -272,7 +280,7 @@ export const processTimesheetData = async (
         Task:
         1. Extract distinct activities/programs/websites.
         2. Estimate or parse the duration in minutes for each activity.
-        3. Assign a Category (RESEARCH, CREATION, LEARNING, ACTIVITY, LEISURE, OTHER). 
+        3. Assign a Category (RESEARCH, CREATION, LEARNING, ACTIVITY, LEISURE, FILE_SORTING, DOCUMENTATION, OTHER). 
            - NOTE: AI development, prompts, and coding should be CREATION.
         4. Correlate the activity to one of the provided Projects based on context.
         5. Clean up the Title.

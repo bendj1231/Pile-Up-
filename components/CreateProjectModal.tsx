@@ -87,6 +87,8 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
           case TaskCategory.LEARNING: return 'bg-emerald-500';
           case TaskCategory.ACTIVITY: return 'bg-yellow-400';
           case TaskCategory.LEISURE: return 'bg-red-500';
+          case TaskCategory.FILE_SORTING: return 'bg-gray-500';
+          case TaskCategory.DOCUMENTATION: return 'bg-cyan-500';
           default: return 'bg-slate-400';
       }
   };
@@ -98,6 +100,8 @@ const CreateProjectModal: React.FC<CreateProjectModalProps> = ({ isOpen, onClose
           case TaskCategory.LEARNING: return 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
           case TaskCategory.ACTIVITY: return 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800';
           case TaskCategory.LEISURE: return 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800';
+          case TaskCategory.FILE_SORTING: return 'bg-gray-50 dark:bg-gray-900/20 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-800';
+          case TaskCategory.DOCUMENTATION: return 'bg-cyan-50 dark:bg-cyan-900/20 text-cyan-600 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800';
           default: return 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700';
       }
   };

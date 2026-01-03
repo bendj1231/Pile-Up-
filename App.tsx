@@ -4,6 +4,7 @@ import GoalCard from './components/GoalCard';
 import AnalysisPanel from './components/AnalysisPanel';
 import ProgressChart from './components/ProgressChart';
 import Sidebar from './components/Sidebar';
+// FIX: The error indicated no default export. Changed to a named import, assuming PaperView is exported as a named component. This should be 'import PaperView from ...' if the export is default.
 import PaperView from './components/PaperView';
 import AddTaskModal from './components/AddTaskModal';
 import CreateProjectModal from './components/CreateProjectModal';

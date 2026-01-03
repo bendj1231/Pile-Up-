@@ -217,11 +217,11 @@ const TimesheetView: React.FC<TimesheetViewProps> = ({ tasks, goals = [], onUpda
                 const getCategoryForApp = (appName: string): TaskCategory => {
                     const lowerAppName = appName.toLowerCase();
                     if (lowerAppName.includes('safari')) return TaskCategory.RESEARCH;
-                    if (lowerAppName.includes('drive')) return TaskCategory.ACTIVITY;
+                    if (lowerAppName.includes('drive')) return TaskCategory.FILE_SORTING;
                     if (lowerAppName.includes('ai studio')) return TaskCategory.CREATION;
                     if (lowerAppName.includes('google gemini')) return TaskCategory.CREATION;
-                    if (lowerAppName.includes('ia writer')) return TaskCategory.CREATION;
-                    if (lowerAppName.includes('finder')) return TaskCategory.ACTIVITY;
+                    if (lowerAppName.includes('ia writer')) return TaskCategory.DOCUMENTATION;
+                    if (lowerAppName.includes('finder')) return TaskCategory.FILE_SORTING;
                     if (lowerAppName.includes('cursor')) return TaskCategory.CREATION;
                     if (lowerAppName.includes('ajbc')) return TaskCategory.RESEARCH;
                     if (lowerAppName.includes('ajbowlerconsult')) return TaskCategory.RESEARCH;
@@ -505,9 +505,32 @@ const TimesheetView: React.FC<TimesheetViewProps> = ({ tasks, goals = [], onUpda
   };
 
   const handleConfirmMerge = () => {
-      setExternalEntries(prev => [...prev, ...tempEntries]);
-      setTempEntries([]);
-      setViewMode('analytics');
+    setExternalEntries(prev => {
+        const entryMap: { [key: string]: TimesheetEntry } = {};
+
+        // Combine previous and new entries and process them to handle duplicates
+        [...prev, ...tempEntries].forEach(entry => {
+            const key = `${entry.date}|${entry.title.toLowerCase()}`;
+            if (entryMap[key]) {
+                // If entry already exists in our map, sum the duration
+                entryMap[key].durationMinutes += entry.durationMinutes;
+                // And combine notes
+                const combinedNotes = [entryMap[key].notes, entry.notes]
+                    .filter(Boolean)
+                    .join(' | ');
+                entryMap[key].notes = combinedNotes;
+            } else {
+                // Otherwise, add it to the map (create a copy to avoid mutation)
+                entryMap[key] = { ...entry };
+            }
+        });
+        
+        // Convert map back to an array for state
+        return Object.values(entryMap);
+    });
+
+    setTempEntries([]);
+    setViewMode('analytics');
   };
 
   const handleDiscardTemp = () => {
@@ -534,6 +557,8 @@ const TimesheetView: React.FC<TimesheetViewProps> = ({ tasks, goals = [], onUpda
         case TaskCategory.LEARNING: return { bg: 'bg-emerald-500', bgLight: 'bg-emerald-50 dark:bg-emerald-900/10', text: 'text-emerald-600 dark:text-emerald-400' };
         case TaskCategory.ACTIVITY: return { bg: 'bg-yellow-400', bgLight: 'bg-yellow-50 dark:bg-yellow-900/10', text: 'text-yellow-600 dark:text-yellow-400' };
         case TaskCategory.LEISURE: return { bg: 'bg-red-500', bgLight: 'bg-red-50 dark:bg-red-900/10', text: 'text-red-600 dark:text-red-400' };
+        case TaskCategory.FILE_SORTING: return { bg: 'bg-gray-500', bgLight: 'bg-gray-50 dark:bg-gray-900/10', text: 'text-gray-600 dark:text-gray-400' };
+        case TaskCategory.DOCUMENTATION: return { bg: 'bg-cyan-500', bgLight: 'bg-cyan-50 dark:bg-cyan-900/10', text: 'text-cyan-600 dark:text-cyan-400' };
         default: return { bg: 'bg-slate-400', bgLight: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-500' };
     }
   };
@@ -860,7 +885,11 @@ const TimesheetView: React.FC<TimesheetViewProps> = ({ tasks, goals = [], onUpda
                                             entry.category === TaskCategory.LEISURE ? 'text-red-500' : 
                                             entry.category === TaskCategory.RESEARCH ? 'text-orange-500' :
                                             entry.category === TaskCategory.CREATION ? 'text-blue-500' :
-                                            entry.category === TaskCategory.LEARNING ? 'text-emerald-500' : 'text-slate-500'
+                                            entry.category === TaskCategory.LEARNING ? 'text-emerald-500' :
+                                            entry.category === TaskCategory.ACTIVITY ? 'text-yellow-500' :
+                                            entry.category === TaskCategory.FILE_SORTING ? 'text-gray-500' :
+                                            entry.category === TaskCategory.DOCUMENTATION ? 'text-cyan-500' :
+                                            'text-slate-500'
                                         }`}
                                     >
                                         {Object.values(TaskCategory).map(cat => (
@@ -1489,7 +1518,11 @@ const LogEntryRow: React.FC<{
                                 entry.category === TaskCategory.LEISURE ? 'text-red-500' : 
                                 entry.category === TaskCategory.RESEARCH ? 'text-orange-500' :
                                 entry.category === TaskCategory.CREATION ? 'text-blue-500' :
-                                entry.category === TaskCategory.LEARNING ? 'text-emerald-500' : 'text-slate-500'
+                                entry.category === TaskCategory.LEARNING ? 'text-emerald-500' :
+                                entry.category === TaskCategory.ACTIVITY ? 'text-yellow-500' :
+                                entry.category === TaskCategory.FILE_SORTING ? 'text-gray-500' :
+                                entry.category === TaskCategory.DOCUMENTATION ? 'text-cyan-500' :
+                                'text-slate-500'
                             }`}
                         >
                             {Object.values(TaskCategory).map(cat => (

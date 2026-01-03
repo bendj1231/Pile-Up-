@@ -30,9 +30,13 @@ const DailyChecklist: React.FC<DailyChecklistProps> = ({ tasks, goals, onTaskCli
 
   const getCategoryColor = (cat: TaskCategory) => {
     switch (cat) {
-        case TaskCategory.RESEARCH: return 'bg-sky-500/10 text-sky-400 border-sky-500/20';
-        case TaskCategory.CREATION: return 'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20';
+        case TaskCategory.RESEARCH: return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
+        case TaskCategory.CREATION: return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
         case TaskCategory.LEARNING: return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+        case TaskCategory.ACTIVITY: return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
+        case TaskCategory.LEISURE: return 'bg-red-500/10 text-red-400 border-red-500/20';
+        case TaskCategory.FILE_SORTING: return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
+        case TaskCategory.DOCUMENTATION: return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20';
         default: return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
     }
   };
@@ -164,9 +168,14 @@ const DailyChecklist: React.FC<DailyChecklistProps> = ({ tasks, goals, onTaskCli
                         <div key={task.id} className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 border border-transparent">
                             <div className="flex items-center gap-2">
                                 <span className={`w-1.5 h-1.5 rounded-full ${
-                                    task.category === TaskCategory.RESEARCH ? 'bg-sky-400' :
-                                    task.category === TaskCategory.CREATION ? 'bg-fuchsia-400' :
-                                    task.category === TaskCategory.LEARNING ? 'bg-emerald-400' : 'bg-slate-400'
+                                    task.category === TaskCategory.RESEARCH ? 'bg-orange-400' :
+                                    task.category === TaskCategory.CREATION ? 'bg-blue-400' :
+                                    task.category === TaskCategory.LEARNING ? 'bg-emerald-400' : 
+                                    task.category === TaskCategory.ACTIVITY ? 'bg-yellow-400' :
+                                    task.category === TaskCategory.LEISURE ? 'bg-red-400' :
+                                    task.category === TaskCategory.FILE_SORTING ? 'bg-gray-400' :
+                                    task.category === TaskCategory.DOCUMENTATION ? 'bg-cyan-400' :
+                                    'bg-slate-400'
                                 }`}></span>
                                 <span className="text-slate-400 line-through decoration-slate-600 decoration-2 text-sm">{task.title}</span>
                             </div>

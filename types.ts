@@ -1,4 +1,5 @@
 
+
 export enum TaskStatus {
   TODO = 'TODO',
   IN_PROGRESS = 'IN_PROGRESS',
@@ -11,6 +12,8 @@ export enum TaskCategory {
   LEARNING = 'LEARNING', // Green
   ACTIVITY = 'ACTIVITY', // Yellow
   LEISURE = 'LEISURE',   // Red
+  FILE_SORTING = 'FILE_SORTING',
+  DOCUMENTATION = 'DOCUMENTATION',
   OTHER = 'OTHER',
 }
 
