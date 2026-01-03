@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Task, TimesheetEntry, TaskCategory, Goal, TimesheetSource, TaskStatus } from '../types';
-import { processTimesheetData } from '../services/geminiService';
+import { processTimesheetData, generateActivitySummary } from '../services/geminiService';
 import TrendChart from './TrendChart';
 import CategoryDistributionChart from './CategoryDistributionChart';
 
@@ -166,11 +166,13 @@ const TimesheetView: React.FC<TimesheetViewProps> = ({ tasks, goals = [], onUpda
   const handleImport = async () => {
     if (!rawData.trim()) return;
 
-    // Try to parse as JSON first for accuracy and consistency
+    // --- SMART PARSING LOGIC ---
+    // Attempt to parse known JSON structures directly before falling back to AI.
     try {
         const json = JSON.parse(rawData);
-        let extractedTasks: any[] = [];
 
+        // 1. Check for standard Project/Task list JSON
+        let extractedTasks: any[] = [];
         if (Array.isArray(json)) {
             extractedTasks = json;
         } else if (json.tasks && Array.isArray(json.tasks)) {
@@ -179,7 +181,6 @@ const TimesheetView: React.FC<TimesheetViewProps> = ({ tasks, goals = [], onUpda
             extractedTasks = json.tasks;
         }
 
-        // Check if we successfully extracted tasks from a known JSON structure
         if (extractedTasks.length > 0) {
             const mappedEntries: TimesheetEntry[] = extractedTasks.map((t: any) => ({
                 id: t.id || Date.now().toString() + Math.random(),
@@ -194,21 +195,102 @@ const TimesheetView: React.FC<TimesheetViewProps> = ({ tasks, goals = [], onUpda
             })).filter(e => e.durationMinutes > 0);
 
             if (mappedEntries.length > 0) {
-                console.log("Successfully parsed JSON directly. Bypassing AI.");
+                console.log("Successfully parsed structured JSON directly. Bypassing AI.");
                 setTempEntries(mappedEntries);
                 setRawData('');
                 setImportTargetProjectId('');
                 setIsProjectConfirmed(false);
                 setViewMode('refine');
-                return; // Exit after successful direct parse
+                return;
             }
         }
-    } catch (error) {
-        console.log("Not a valid JSON for direct import, falling back to AI.", error);
-        // Fall through to AI processing for unstructured text
-    }
 
-    // Fallback to AI processing for unstructured data
+        // 2. Check for ActivityWatch JSON format (as per Python script logic)
+        if (json.buckets) {
+            const windowBucketKey = Object.keys(json.buckets).find(key => key.includes('aw-watcher-window'));
+            if (windowBucketKey) {
+                setIsProcessing(true);
+                setLoadingText("Generating Summaries...");
+
+                const events = json.buckets[windowBucketKey]?.events || [];
+                
+                const getCategoryForApp = (appName: string): TaskCategory => {
+                    const lowerAppName = appName.toLowerCase();
+                    if (lowerAppName.includes('safari')) return TaskCategory.RESEARCH;
+                    if (lowerAppName.includes('drive')) return TaskCategory.ACTIVITY;
+                    if (lowerAppName.includes('ai studio')) return TaskCategory.CREATION;
+                    if (lowerAppName.includes('google gemini')) return TaskCategory.CREATION;
+                    if (lowerAppName.includes('ia writer')) return TaskCategory.CREATION;
+                    if (lowerAppName.includes('finder')) return TaskCategory.ACTIVITY;
+                    if (lowerAppName.includes('cursor')) return TaskCategory.CREATION;
+                    if (lowerAppName.includes('ajbc')) return TaskCategory.RESEARCH;
+                    if (lowerAppName.includes('ajbowlerconsult')) return TaskCategory.RESEARCH;
+                    if (lowerAppName.includes('wingmentor')) return TaskCategory.CREATION;
+                    return TaskCategory.OTHER;
+                };
+
+                const groupedData: { [date: string]: { [app: string]: number } } = {};
+                for (const event of events) {
+                    if (event.data && event.data.app && event.duration && event.timestamp) {
+                        const date = new Date(event.timestamp).toISOString().split('T')[0];
+                        const app = event.data.app;
+                        const duration = event.duration;
+
+                        if (!groupedData[date]) groupedData[date] = {};
+                        if (!groupedData[date][app]) groupedData[date][app] = 0;
+                        groupedData[date][app] += duration;
+                    }
+                }
+
+                const entryPromises: Promise<TimesheetEntry>[] = [];
+                const projectContext = importTargetProjectId ? goals.find(g => g.id === importTargetProjectId) : null;
+                
+                for (const date in groupedData) {
+                    for (const app in groupedData[date]) {
+                        const durationSeconds = groupedData[date][app];
+                        const durationMinutes = Math.round(durationSeconds / 60);
+                        if (durationMinutes > 0) {
+                            const promise = (async () => {
+                                const summary = await generateActivitySummary(app, durationMinutes, projectContext || undefined);
+                                return {
+                                    id: `${date}-${app}-${Math.random()}`,
+                                    date: date,
+                                    title: app,
+                                    durationMinutes: durationMinutes,
+                                    category: getCategoryForApp(app),
+                                    // FIX: Cast string literal to TimesheetSource to match the expected type.
+                                    source: 'SCREEN_MONITOR' as TimesheetSource,
+                                    notes: summary,
+                                    linkedGoalId: importTargetProjectId || undefined,
+                                    linkedGoalTitle: projectContext?.title
+                                };
+                            })();
+                            entryPromises.push(promise);
+                        }
+                    }
+                }
+
+                const newEntries = await Promise.all(entryPromises);
+                setIsProcessing(false);
+
+                if (newEntries.length > 0) {
+                    console.log("Successfully parsed ActivityWatch JSON with AI summaries.");
+                    setTempEntries(newEntries);
+                    setRawData('');
+                    setImportTargetProjectId('');
+                    setIsProjectConfirmed(false);
+                    setViewMode('refine');
+                    return;
+                }
+            }
+        }
+
+    } catch (error) {
+        console.log("Not a recognized JSON format, falling back to AI for parsing.", error);
+    }
+    // --- END SMART PARSING ---
+
+    // 3. Fallback to AI processing for unstructured data
     setIsProcessing(true);
     
     const messages = ["Conjugating Data...", "Generating Timesheet...", "Have a beer while generating..."];
@@ -751,74 +833,85 @@ const TimesheetView: React.FC<TimesheetViewProps> = ({ tasks, goals = [], onUpda
                       </div>
                   )}
                   {tempEntries.map((entry) => (
-                      <div key={entry.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col md:flex-row gap-4 items-start md:items-center shadow-sm hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors group">
-                          {/* Left: Date */}
-                          <div className="w-full md:w-16 flex-shrink-0 text-center md:text-left">
-                              <span className="text-xs font-mono text-slate-400">{formatDateDDMMYY(entry.date)}</span>
-                          </div>
+                      <div key={entry.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 flex flex-col shadow-sm hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors group">
+                          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center w-full">
+                            {/* Left: Date */}
+                            <div className="w-full md:w-16 flex-shrink-0 text-center md:text-left">
+                                <span className="text-xs font-mono text-slate-400">{formatDateDDMMYY(entry.date)}</span>
+                            </div>
 
-                          {/* Middle: Main Inputs */}
-                          <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-3">
-                              {/* Title Input */}
-                              <input 
-                                  type="text" 
-                                  value={entry.title}
-                                  onChange={(e) => handleUpdateTempEntry(entry.id, 'title', e.target.value)}
-                                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                            {/* Middle: Main Inputs */}
+                            <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {/* Title Input */}
+                                <input 
+                                    type="text" 
+                                    value={entry.title}
+                                    onChange={(e) => handleUpdateTempEntry(entry.id, 'title', e.target.value)}
+                                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                                />
+                                
+                                {/* Meta Controls */}
+                                <div className="flex gap-2">
+                                    {/* Category Select */}
+                                    <select
+                                        value={entry.category}
+                                        onChange={(e) => handleUpdateTempEntry(entry.id, 'category', e.target.value)}
+                                        className={`bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-xs font-bold uppercase tracking-wide focus:outline-none focus:border-indigo-500 ${
+                                            entry.category === TaskCategory.LEISURE ? 'text-red-500' : 
+                                            entry.category === TaskCategory.RESEARCH ? 'text-orange-500' :
+                                            entry.category === TaskCategory.CREATION ? 'text-blue-500' :
+                                            entry.category === TaskCategory.LEARNING ? 'text-emerald-500' : 'text-slate-500'
+                                        }`}
+                                    >
+                                        {Object.values(TaskCategory).map(cat => (
+                                            <option key={cat} value={cat}>{cat}</option>
+                                        ))}
+                                    </select>
+
+                                    {/* Project Link Select */}
+                                    <select 
+                                        value={entry.linkedGoalId || ''}
+                                        onChange={(e) => handleUpdateTempEntry(entry.id, 'linkedGoalId', e.target.value)}
+                                        className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-600 dark:text-slate-300 focus:outline-none focus:border-indigo-500"
+                                    >
+                                        <option value="">(No Project Link)</option>
+                                        {goals.map(g => (
+                                            <option key={g.id} value={g.id}>{g.title}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Right: Duration & Actions */}
+                            <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+                                <div className="relative w-20">
+                                    <input 
+                                        type="number" 
+                                        min="0"
+                                        value={entry.durationMinutes}
+                                        onChange={(e) => handleUpdateTempEntry(entry.id, 'durationMinutes', parseInt(e.target.value) || 0)}
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-3 pr-6 py-2 text-sm font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 text-right"
+                                    />
+                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">m</span>
+                                </div>
+                                
+                                <button 
+                                    onClick={() => handleDeleteTempEntry(entry.id)}
+                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                                    title="Delete Item"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                            </div>
+                          </div>
+                          <div className="w-full mt-3 pl-0 md:pl-20">
+                              <input
+                                  type="text"
+                                  value={entry.notes || ''}
+                                  onChange={(e) => handleUpdateTempEntry(entry.id, 'notes', e.target.value)}
+                                  placeholder="Notes / AI Summary"
+                                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 focus:outline-none focus:border-indigo-500"
                               />
-                              
-                              {/* Meta Controls */}
-                              <div className="flex gap-2">
-                                  {/* Category Select */}
-                                  <select
-                                      value={entry.category}
-                                      onChange={(e) => handleUpdateTempEntry(entry.id, 'category', e.target.value)}
-                                      className={`bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-xs font-bold uppercase tracking-wide focus:outline-none focus:border-indigo-500 ${
-                                          entry.category === TaskCategory.LEISURE ? 'text-red-500' : 
-                                          entry.category === TaskCategory.RESEARCH ? 'text-orange-500' :
-                                          entry.category === TaskCategory.CREATION ? 'text-blue-500' :
-                                          entry.category === TaskCategory.LEARNING ? 'text-emerald-500' : 'text-slate-500'
-                                      }`}
-                                  >
-                                      {Object.values(TaskCategory).map(cat => (
-                                          <option key={cat} value={cat}>{cat}</option>
-                                      ))}
-                                  </select>
-
-                                  {/* Project Link Select */}
-                                  <select 
-                                      value={entry.linkedGoalId || ''}
-                                      onChange={(e) => handleUpdateTempEntry(entry.id, 'linkedGoalId', e.target.value)}
-                                      className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-600 dark:text-slate-300 focus:outline-none focus:border-indigo-500"
-                                  >
-                                      <option value="">(No Project Link)</option>
-                                      {goals.map(g => (
-                                          <option key={g.id} value={g.id}>{g.title}</option>
-                                      ))}
-                                  </select>
-                              </div>
-                          </div>
-
-                          {/* Right: Duration & Actions */}
-                          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
-                              <div className="relative w-20">
-                                  <input 
-                                      type="number" 
-                                      min="0"
-                                      value={entry.durationMinutes}
-                                      onChange={(e) => handleUpdateTempEntry(entry.id, 'durationMinutes', parseInt(e.target.value) || 0)}
-                                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-3 pr-6 py-2 text-sm font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 text-right"
-                                  />
-                                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">m</span>
-                              </div>
-                              
-                              <button 
-                                  onClick={() => handleDeleteTempEntry(entry.id)}
-                                  className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                                  title="Delete Item"
-                              >
-                                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                              </button>
                           </div>
                       </div>
                   ))}

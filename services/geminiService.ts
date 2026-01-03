@@ -199,6 +199,51 @@ export const categorizeTask = async (title: string): Promise<TaskCategory> => {
     }
 };
 
+export const generateActivitySummary = async (
+    appName: string, 
+    durationMinutes: number, 
+    projectContext?: { title: string }
+): Promise<string> => {
+    if (!processApiKey) return "Activity logged.";
+
+    const ai = new GoogleGenAI({ apiKey: processApiKey });
+
+    const prompt = `
+        Generate a concise, professional, one-line timesheet description for an activity, phrased as an action taken by a user.
+        
+        Details:
+        - Application Used: "${appName}"
+        - Duration: ${durationMinutes} minutes
+        ${projectContext ? `- Project Context: "${projectContext.title}"` : ''}
+
+        Rules:
+        - The description must be a single sentence.
+        - It should sound like a log entry (e.g., "Worked on...", "Developed...", "Researched...").
+        - Be creative and infer the likely activity based on the app name and project context.
+
+        Examples:
+        - App: 'Cursor', Project: 'Web App Dev' -> "Continued development on the main web application using the Cursor IDE."
+        - App: 'Safari', Project: 'Market Research' -> "Conducted market research and competitive analysis via Safari."
+        - App: 'IA Writer', Project: 'Blog Post' -> "Drafted and edited content for the upcoming blog post in IA Writer."
+        - App: 'Finder', Project: 'File Organization' -> "Organized project files and digital assets in Finder."
+        - App: 'Google Gemini', Project: 'AI Integration' -> "Researched and tested prompts for AI integration using Google Gemini."
+
+        Task: Provide only the generated description string, without any extra text or quotes.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
+        });
+        const text = response.text?.trim();
+        return text || `Logged ${durationMinutes} minutes on ${appName}`;
+    } catch (error) {
+        console.error("Activity summary generation failed:", error);
+        return `Logged ${durationMinutes} minutes on ${appName}`; // Fallback
+    }
+};
+
 export const processTimesheetData = async (
     rawData: string, 
     availableProjects: {id: string, title: string, description?: string}[] = [],
